@@ -1,3 +1,8 @@
 from django.contrib import admin
 
-# Register your models here.
+from indexer.models import Indexer
+
+
+@admin.register(Indexer)
+class IndexerAdmin(admin.ModelAdmin):
+    list_display = ('indexer_id', 'start_block', 'end_block', 'current_block')
