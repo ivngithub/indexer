@@ -32,7 +32,7 @@ def error_parsing(e):
 if __name__ == '__main__':
     django.setup()
     from django.core.exceptions import ObjectDoesNotExist
-    from indexer.models import Indexer, Contract
+    from indexer.models import Contract, Indexer, RangeBlock
 
     logging.info(f'start indexer-{sys.argv[3]} from {sys.argv[1]} to {sys.argv[2]}')
     try:
@@ -48,7 +48,6 @@ if __name__ == '__main__':
         )
         indexer.contract = contract
         indexer.save()
-
 
     w3 = Web3(Web3.HTTPProvider(
         'https://mainnet.infura.io/v3/79ce5829e4e14a7bbcce780dbc28dd14',
@@ -86,4 +85,13 @@ if __name__ == '__main__':
         indexer.step = adjust_step(indexer.target_events_per_request, indexer.step, len(events))
         indexer.last_block = to_block
         indexer.save()
+        range_block = RangeBlock(
+            first_block=from_block,
+            last_block=to_block,
+            count_events=len(events),
+            indexer=indexer,
+            contract=indexer.contract
+        )
+        range_block.save()
 
+    logging.info('done.')
