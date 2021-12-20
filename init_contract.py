@@ -30,7 +30,7 @@ if __name__ == '__main__':
 
     contract = Contract(
         name='OpenSea',
-        address='0xF715bEb51EC8F63317d66f491E37e7BB048fCc2d',
+        address='0x7Be8076f4EA4A4AD08075C2508e481d6C946D12b',
         abi=abi,
         start_block=sys.argv[1],
         end_block=sys.argv[2],

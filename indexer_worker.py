@@ -14,11 +14,13 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'app.settings')
 
 
 def adjust_step(target_events_per_request, step, events):
-    if events > 1:
+    if step > 300000:
+        adjusted_step = step // 4
+    elif events > 1:
         adjusted_step = min(int(step * target_events_per_request / events), int(step * 1.1))
     else:
         adjusted_step = int(step * 1.1)
-    logging.info(f'Got {events} events. Adjusted step: {adjusted_step}')
+    logging.info(f'Adjusted step: {adjusted_step}')
     return adjusted_step
 
 
@@ -32,11 +34,11 @@ def error_parsing(e):
 if __name__ == '__main__':
     django.setup()
     from django.core.exceptions import ObjectDoesNotExist
-    from indexer.models import Contract, Indexer, RangeBlock
+    from indexer.models import Contract, Indexer, RangeBlock, Account, Trade
 
     logging.info(f'start indexer-{sys.argv[3]} from {sys.argv[1]} to {sys.argv[2]}')
     try:
-        indexer = Indexer.objects.get(indexer_id=sys.argv[3])
+        indexer = Indexer.objects.get(indexer_id=sys.argv[3], contract_id=sys.argv[4])
     except ObjectDoesNotExist:
         contract = Contract.objects.get(id=sys.argv[4])
         indexer = Indexer(
@@ -44,7 +46,8 @@ if __name__ == '__main__':
             end_block=int(sys.argv[2]),
             indexer_id=int(sys.argv[3]),
             last_block=int(sys.argv[1])-1,
-            step=25000
+            step=25000,
+            target_events_per_request=8500
         )
         indexer.contract = contract
         indexer.save()
@@ -75,23 +78,45 @@ if __name__ == '__main__':
         except ValueError as e:
             if error_parsing(e) == 'query returned more than 10000 results':
                 logging.warning(f'step {indexer.step} must be reduced')
-                indexer.step = indexer.step // 1.1 or 1
+                indexer.step = int(indexer.step // 1.5) or 1
                 indexer.save()
                 logging.warning(f'next step will be {indexer.step}')
             raise e
 
-        for event in events:
-            logging.info(event)
-        indexer.step = adjust_step(indexer.target_events_per_request, indexer.step, len(events))
-        indexer.last_block = to_block
-        indexer.save()
+        traders = list()
         range_block = RangeBlock(
             first_block=from_block,
             last_block=to_block,
+            step=to_block-from_block,
             count_events=len(events),
             indexer=indexer,
             contract=indexer.contract
         )
+        logging.info(f'Got {len(events)} events.')
+        logging.info('events processing: start')
+        for event in events:
+            seller, _ = Account.objects.get_or_create(address=event['args']['maker'])
+            buyer, _ = Account.objects.get_or_create(address=event['args']['taker'])
+            trade = Trade(
+                seller=seller,
+                buyer=buyer,
+                tx=event.transactionHash.hex(),
+                block_number=event.blockNumber,
+                block_hash=event.blockHash.hex(),
+                range_block=range_block
+            )
+
+            traders.append(trade)
+        logging.info('events processing: end')
+        logging.info('save data: start')
         range_block.save()
+        logging.info('save all traders: start')
+        Trade.objects.bulk_create(traders,  ignore_conflicts=True)
+        logging.info('save all traders: end')
+        indexer.step = adjust_step(indexer.target_events_per_request, indexer.step, len(events))
+        indexer.last_block = to_block
+        indexer.save()
+        range_block.save()
+        logging.info('save data: end')
 
     logging.info('done.')
